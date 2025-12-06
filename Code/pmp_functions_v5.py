@@ -401,6 +401,132 @@ def run_timing_strategy(
 
 #-----------------------------------------------------------------------------------------------------------------------------------------------
 
+
+def run_cc_strategy_drift(
+    weights,
+    returns,
+    rf,
+    benchmark,
+    frequency=1,
+    t_cost=0.0,
+):
+    """
+    FINAL BACKTEST ENGINE (LONG/SHORT ONLY)
+    -------------------------------------------------------
+    - Long/short strategy with free gross exposure.
+    - No beta neutralization.
+    - No long-only mode.
+    - Drift between rebalancing, no normalization of weights.
+    - Full output identical to your original engine.
+    - Benchmark must be a pd.Series (benchmark total return).
+
+    Parameters
+    ----------
+    weights : pd.DataFrame
+        Target weights at each rebalance date.
+
+    returns : pd.DataFrame
+        Monthly total returns for regions.
+
+    rf : pd.Series
+        Monthly risk-free returns.
+
+    benchmark : pd.Series
+        Benchmark total return series (aligned to weights.index).
+
+    frequency : int
+        Rebalancing interval in months.
+
+    t_cost : float
+        Transaction cost per 1.0 unit of turnover.
+
+    Returns
+    -------
+    results : pd.DataFrame
+    """
+
+    import pandas as pd
+    import numpy as np
+
+    # ------------------------------------------------------------
+    # 1. Align inputs
+    # ------------------------------------------------------------
+    weights = weights.copy()
+    returns = returns.reindex(weights.index).copy()
+    returns = returns[weights.columns]
+    rf = rf.reindex(weights.index).fillna(0)
+
+    # Benchmark now MUST be a Series
+    if not isinstance(benchmark, pd.Series):
+        raise ValueError("benchmark must be a pandas Series with benchmark returns.")
+
+    bm_returns = benchmark.reindex(weights.index).fillna(0)
+
+    dates = list(weights.index)
+    regions = list(weights.columns)
+
+    # ------------------------------------------------------------
+    # 2. Rebalancing schedule
+    # ------------------------------------------------------------
+    rebalance = pd.Series(0, index=dates, dtype=int)
+    rebalance.iloc[::frequency] = 1
+    rebalance.iloc[0] = 1
+
+    # ------------------------------------------------------------
+    # 3. Start weights
+    # ------------------------------------------------------------
+    current_weight = weights.iloc[0].fillna(0).copy()
+    results = []
+
+    # ------------------------------------------------------------
+    # 4. Backtest Loop
+    # ------------------------------------------------------------
+    for i in range(len(dates) - 1):
+
+        date = dates[i]
+        next_date = dates[i + 1]
+
+        # STEP 1 – Rebalancing
+        if rebalance.loc[date] == 1:
+            target_weight = weights.loc[date].fillna(0)
+            turnover = 0.5 * (target_weight - current_weight).abs().sum()
+            current_weight = target_weight.copy()
+        else:
+            turnover = 0.0
+        
+        w_pre_drift = current_weight.copy()
+
+        # STEP 2 – Apply returns
+        r_vec = returns.loc[next_date].fillna(0.0)
+
+        gross_ret = (current_weight * r_vec).sum()
+        tcost = turnover * t_cost
+        net_ret = gross_ret - tcost
+        bm_ret = bm_returns.loc[next_date]
+
+        # STEP 3 – Drift Update (NO NORMALIZATION!)
+        current_weight = current_weight * (1 + r_vec)
+
+        # STEP 4 – Save results (weights BEFORE drift)
+        row = {
+            "Date": next_date,
+            "ret_net": net_ret,
+            "ret_gross": gross_ret,
+            "ret_bm": bm_ret,
+            "turnover": turnover,
+            "tcost": tcost,
+            "ret_rf": rf.loc[next_date],
+        }
+
+        for reg in regions:
+            row[f"w_{reg}"] = current_weight.get(reg, np.nan)
+
+        results.append(row)
+
+    return pd.DataFrame(results).set_index("Date")
+
+
+
 def run_cc_strategy(
     weights,
     returns,
