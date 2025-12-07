@@ -198,7 +198,7 @@ def make_country_weights_ls_vol(
     if signal_lag > 0:
         signal = signal.shift(signal_lag)
 
-    ranks = signal.rank(axis=1, ascending=False)
+    ranks = signal.rank(axis=1, ascending=True)
 
     idx = ranks.index.union(returns.index)
     ranks = ranks.reindex(idx)
@@ -492,8 +492,6 @@ def run_cc_strategy(
             current_weight = target_weight.copy()
         else:
             turnover = 0.0
-        
-        w_pre_drift = current_weight.copy()
 
         # STEP 2 – Apply returns
         r_vec = returns.loc[next_date].fillna(0.0)
@@ -506,7 +504,7 @@ def run_cc_strategy(
         # STEP 3 – Drift Update (NO NORMALIZATION!)
         current_weight = current_weight * (1 + r_vec)
 
-        # STEP 4 – Save results (weights BEFORE drift)
+        # STEP 4 – Record results
         row = {
             "Date": next_date,
             "ret_net": net_ret,
@@ -518,7 +516,7 @@ def run_cc_strategy(
         }
 
         for reg in regions:
-            row[f"w_{reg}"] = w_pre_drift.get(reg, np.nan)
+            row[f"w_{reg}"] = current_weight.get(reg, np.nan)
 
         results.append(row)
 
